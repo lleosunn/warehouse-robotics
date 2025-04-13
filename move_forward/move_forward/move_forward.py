@@ -16,7 +16,6 @@ class MoveForward(Node):
     		
     		#message to set all wheels to the given speed_value:
     		msg = WheelSpeed()
-    		print(msg)
     		msg.fr = speed_value
     		msg.fl = speed_value
     		msg.rr = speed_value
@@ -26,6 +25,7 @@ class MoveForward(Node):
     		
     		start_time = time.time()
     		while (time.time() - start_time) <travel_time:
+    			print(msg)
     			self.pub.publish(msg)
     			time.sleep(0.1) # 10 hz
     			
