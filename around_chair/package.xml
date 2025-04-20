@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>around_chair</name>
+  <version>1.0.0</version>
+  <description>
+    A node to guide the RoboMaster around a chair.
+  </description>
+
+  <maintainer email="rachen@mit.edu">Richard Chen</maintainer>
+
+  <license>BSD License 2.0</license>
+
+  <author email="rachen@mit.edu">Richard Chen</author>
+  <author>Eve Silfanus</author>
+  <author>James Shaw</author>
+
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
