@@ -1,0 +1,19 @@
+NVIDIA Orin NX - AVerMedia D131
+(Reading database ... 181302 files and directories currently installed.)
+Preparing to unpack arducam-nvidia-l4t-kernel-t234-nx-5.10.104-tegra-35.3.1-20230725012901_arm64.deb ...
+Unpacking arducam-nvidia-l4t-kernel (5.10.104-tegra-35.3.1-20230725012901) over (5.10.104-tegra-35.3.1-20230725012901) ...
+Setting up arducam-nvidia-l4t-kernel (5.10.104-tegra-35.3.1-20230725012901) ...
+
+Traceback (most recent call last):
+  File "/opt/arducam/jetson-io/config-by-hardware.py", line 125, in <module>
+    main()
+  File "/opt/arducam/jetson-io/config-by-hardware.py", line 94, in main
+    jetson = board.Board()
+  File "/opt/arducam/jetson-io/Jetson/board.py", line 230, in __init__
+    self.dtb = _board_get_dtb(self.compat, self.model, dtbdir)
+  File "/opt/arducam/jetson-io/Jetson/board.py", line 114, in _board_get_dtb
+    raise RuntimeError("No DTB found for %s!" % model)
+RuntimeError: No DTB found for NVIDIA Orin NX - AVerMedia D131!
+[0;31mAn unknown error occurred while installing dtoverlays.[0m
+
+[0;31mUnknown error, please send the error message to support@arducam.com[0m

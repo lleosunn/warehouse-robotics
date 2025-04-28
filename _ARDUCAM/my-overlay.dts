@@ -1,0 +1,8 @@
+/dts-v1/;
+
+/ {
+    overlay-name = "JetsonNanoWithSpecialIMX477"
+    jetson-header-name = 
+
+
+};
