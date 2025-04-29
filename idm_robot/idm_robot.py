@@ -23,17 +23,17 @@ s_0 = 0.5 # minimum spacing
 v_0 = 0.5 # max velocity (m/s)
 delta = 4 # exponent
 
-robot_1_pos = 1 # starting position for robot 1 (m)
-robot_1_vel = 0 # starting velocity for robot 1 (m)
-robot_2_pos = 0 # starting position for robot 2 (m)
-robot_2_vel = 0 # starting velocity for robot 2 (m)
+robot_1_pos = 1.0 # starting position for robot 1 (m)
+robot_1_vel = 0.0 # starting velocity for robot 1 (m)
+robot_2_pos = 0.0 # starting position for robot 2 (m)
+robot_2_vel = 0.0 # starting velocity for robot 2 (m)
 
 dt = 0.1 # send a message every 0.1 seconds
 total_time = 10 # 10 seconds
 total_time_steps = int(total_time/dt) # run for 10 seconds
 
 # generate a trajectory for robot 1
-robot_1_accel = np.concatenate(np.repeat(0.1, int(5/dt)), np.repeat(-0.1, int(5/dt)))
+robot_1_accel = np.concatenate([np.repeat(0.1, int(5/dt)), np.repeat(-0.1, int(5/dt))])
 
 
 
@@ -54,6 +54,7 @@ def IDM_model():
     */
     """
 
+    print('here IDM')
     # This is the net distance between the two vehicles (self and vehicle_lead)
     # (denoted as 's' in the lecture note)
     # use this value (in meters) instead of computing it.
@@ -116,50 +117,83 @@ class IDM_robots(Node):
         __init__ method for class.
         """
 
-        super().__init__()
+        super().__init__('idm_robots')
 
         self.pub1 = self.create_publisher(Twist, 'robomaster_1/cmd_vel', 10) # 10 is the queue size
         self.pub2 = self.create_publisher(Twist, 'robomaster_2/cmd_vel', 10) # 10 is the queue size
 
     def run(self):
+        global robot_1_pos
+        global robot_2_pos
+        global robot_1_vel
+        global robot_2_vel
+        global robot_1_accel
+        global robot_2_accel
+
         idx = 0
         start_time = time.time()
 
         # run IDM model
         while time.time() - start_time < total_time:
             # send command to robots to move
+            # print('here')
             twist_robot1 = Twist()
-            twist_robot1.x = robot_1_vel
+            twist_robot1.linear.x = robot_1_vel
 
             twist_robot2 = Twist()
-            twist_robot2.x = robot_2_vel
+            twist_robot2.linear.x = robot_2_vel
+
+            # print('here1')
 
             self.pub1.publish(twist_robot1)
             self.pub2.publish(twist_robot2)
 
+            # print('here2')
+
             # exit out once done
-            if idx >= total_time_steps:
+            if idx >= float(total_time_steps):
                 break
+
+            # print('here3')
 
             if start_time + 0.1*idx < time.time():
                 # compute acceleration
+
+                # print('here4')
                 robot_2_accel = IDM_model()
+
+                # print('here5')
 
                 # update position and velocity
                 robot_1_pos = robot_1_pos + robot_1_vel*dt
-                robot_1_vel = np.max(np.min(robot_1_vel + robot_1_accel[idx]*dt, v_0), 0)
+
+                # print('here5a')
+                # print(type(idx))
+                robot_1_vel = np.clip(robot_1_vel + robot_1_accel[int(idx)]*dt, 0, v_0)
                 
+
+                # print('here6')
+
                 robot_2_pos = robot_2_pos + robot_2_vel*dt
-                robot_2_vel = np.max(np.min(robot_2_vel + robot_2_accel*dt, v_0), 0)
+                robot_2_vel = np.clip(robot_2_vel + robot_2_accel*dt, 0, v_0)
 
                 idx += 1
 
+            # print('here7')
+
+
+        # print('here8')
+
         # stop the robots
         twist_robot1 = Twist()
-        twist_robot1.x = 0
+        twist_robot1.linear.x = 0.0
 
         twist_robot2 = Twist()
-        twist_robot2.x = 0
+        twist_robot2.linear.x = 0.0
+        
+        self.pub1.publish(twist_robot1)
+        self.pub1.publish(twist_robot2)
+
 
 def main(args=None):
     """
