@@ -54,7 +54,7 @@ def IDM_model():
     */
     """
 
-    print('here IDM')
+    # print('here IDM')
     # This is the net distance between the two vehicles (self and vehicle_lead)
     # (denoted as 's' in the lecture note)
     # use this value (in meters) instead of computing it.
@@ -192,7 +192,7 @@ class IDM_robots(Node):
         twist_robot2.linear.x = 0.0
         
         self.pub1.publish(twist_robot1)
-        self.pub1.publish(twist_robot2)
+        self.pub2.publish(twist_robot2)
 
 
 def main(args=None):
