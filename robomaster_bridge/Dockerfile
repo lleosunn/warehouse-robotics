@@ -8,8 +8,6 @@ WORKDIR /opt/robomaster
 RUN git clone https://github.com/janblumenkamp/robomaster_ros2_can.git --recurse
 WORKDIR /opt/robomaster/robomaster_ros2_can
 
-COPY ../move_forward /opt/robomaster/robomaster_ros2_can/move_forward
-
 RUN . /opt/ros/humble/install/setup.sh && colcon build
 
 ENV ROS_DOMAIN_ID=0

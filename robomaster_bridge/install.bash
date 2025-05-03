@@ -24,7 +24,7 @@ Requires=systemd-networkd
 
 [Service]
 ExecStartPre=ifconfig can0 txqueuelen 1000
-ExecStart=/usr/bin/docker run --rm --runtime nvidia --network host --hostname $(hostname) -v /home/nvidia/Robot/move_forward:/opt/robomaster/robomaster_ros2_can/move_forward robomaster_bridge:latest /bin/bash -c ". install/setup.bash && ros2 launch robomaster_can_ros_bridge/launch/bridge.launch.py"
+ExecStart=/usr/bin/docker run --rm --runtime nvidia --network host --hostname $(hostname) robomaster_bridge:latest /bin/bash -c ". install/setup.bash && ros2 launch robomaster_can_ros_bridge/launch/bridge.launch.py"
 KillSignal=SIGINT
 Restart=always
 

@@ -139,9 +139,11 @@ class IDM_robots(Node):
             # print('here')
             twist_robot1 = Twist()
             twist_robot1.linear.x = robot_1_vel
+            twist_robot1.angular.z = 0.029*robot_1_vel # add correction for slight left turn 
 
             twist_robot2 = Twist()
             twist_robot2.linear.x = robot_2_vel
+            twist_robot2.angular.z = 0.024*robot_2_vel # add correction for slight left turn
 
             # print('here1')
 
