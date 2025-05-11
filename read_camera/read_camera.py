@@ -16,26 +16,49 @@ from rclpy.qos import qos_profile_sensor_data
 from rclpy.qos import qos_profile_system_default
 from rclpy.qos import QoSProfile
 
+from cv_bridge import CvBridge
+import cv2
+import numpy as np
+
 class CameraSubscriber(Node):
 
     def __init__(self):
         super().__init__('camera_subscriber')
 
-        print('here0')
         self.subscription = self.create_subscription(
                 Image,
                 '/robomaster_2/camera_0/image_raw',
-                self.listener_callback,
+                #self.listener_callback,
+                self.depth_callback,
                 #qos_profile=self.get_topic_qos('/robomaster_2/camera_0/image_raw')
                 qos_profile_sensor_data
                 )
-        self.subscription
+        
+        self.bridge = CvBridge()
+
+
+    def depth_callback(self, msg):
+        try:
+            depth_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+            depth_image = cv2.cvtColor(depth_image, cv2.COLOR_BGR2GRAY)
+        except Exception as e:
+            self.get_logger().error(f"Could not convert depth image: {e}")
+            return
+
+        cv2.imshow('show', depth_image)
+
+        # focus on center patch
+        h, w = depth_image.shape
+        center_crop = depth_image[h//2 - 20 : h//2 + 20, w//2 - 20:w//2 + 20]
+
+        # estimate distance to object
+        est_distance = np.median(center_crop)
+        #self.get_logger().info(f"Estimated distance: {est_distance:.2f} m")
+    
 
 
     def listener_callback(self, msg):
-        print('here1')
-        #self.get_logger().info('I heard: "%s"' % msg.data)
-        print('here2')
+        self.get_logger().info('I heard: "%s"' % msg.data)
 
     # source: https://github.com/ros-perception/image_pipeline/pull/771/commits/d53f6a98a72fba2e0a36854d5083a3341a2e85a6
     def get_topic_qos(self, topic_name: str) -> QoSProfile:
@@ -66,6 +89,7 @@ def main():
 
     camera_subscriber.destroy_node()
     rclpy.shutdown()
+    cv2.destroyAllWindows()
 
 if __name__ == '__main__':
     main()
