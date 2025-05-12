@@ -20,6 +20,12 @@ from cv_bridge import CvBridge
 import cv2
 import numpy as np
 
+
+print(dir(cv2.aruco))
+
+cMat = np.array([[4247.34391, 0.0, 1872.32624], [0.0, 4244.03498, 888.057648], [0.0, 0.0, 1.0]])
+dcoeff = np.array([-0.5073313, 0.41420746, 0.00385624, 0.00358224, -1.69381974])
+
 class CameraSubscriber(Node):
 
     def __init__(self):
@@ -40,19 +46,35 @@ class CameraSubscriber(Node):
     def depth_callback(self, msg):
         try:
             depth_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
-            depth_image = cv2.cvtColor(depth_image, cv2.COLOR_BGR2GRAY)
+            #depth_image = cv2.cvtColor(depth_image, cv2.COLOR_BGR2GRAY)
+
+            dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_7X7_100)
+            dt = cv2.aruco.DetectorParameters_create()
+
+            corners, ids, _ = cv2.aruco.detectMarkers(depth_image, dict, parameters=dt)
+
+            if ids is not None and ids.size > 0:
+                id = ids[0]
+                corner = corners[0][0]
+                rvec, tvec, _ = cv2.aruco.estimatePoseSingleMarkers(corners[0], 0.05, cMat, dcoeff)
+                dist = np.linalg.norm(tvec)*100
+                print(f"Distance: {dist:.2f} cm")
+
+            else:
+                print("No aruco marker")
+
         except Exception as e:
             self.get_logger().error(f"Could not convert depth image: {e}")
             return
 
-        cv2.imshow('show', depth_image)
+        #cv2.imshow('show', depth_image)
 
         # focus on center patch
-        h, w = depth_image.shape
-        center_crop = depth_image[h//2 - 20 : h//2 + 20, w//2 - 20:w//2 + 20]
+        #h, w = depth_image.shape
+        #center_crop = depth_image[h//2 - 20 : h//2 + 20, w//2 - 20:w//2 + 20]
 
         # estimate distance to object
-        est_distance = np.median(center_crop)
+        #est_distance = np.median(center_crop)
         #self.get_logger().info(f"Estimated distance: {est_distance:.2f} m")
     
 

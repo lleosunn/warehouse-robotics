@@ -7,10 +7,10 @@ if [[ $UID != 0 ]]; then
     exit 1
 fi
 
-if [ -z "$(docker images -q cam_driver_dnv:latest 2> /dev/null)" ]; then
-    echo "Build docker container"
-    docker build . -t cam_driver_dnv:latest
-fi
+#if [ -z "$(docker images -q cam_driver_dnv:latest 2> /dev/null)" ]; then
+echo "Build docker container"
+docker build . -t cam_driver_dnv:latest
+#fi
 
 echo "Prepare systemd service"
 hostname=$(hostname)
