@@ -8,14 +8,14 @@ import tty
 
 from robomaster_msgs.msg import WheelSpeed
 
-def get_key(tiomeout = 0.1):
+def get_key(timeout = 0.1):
 	old_settings = termios.tcgetattr(sys.stdin)
 	try:
 	# cbreak mode
 	tty.setcbreak(sys.stdin.fileno())
 	
 	# wait for input
-	rlist, _, _ select.select([sys.stdin], [], [], timeout)
+	rlist, _, _ = select.select([sys.stdin], [], [], timeout)
 	if rlist:
 		key = sys.stdin.read(1)
 	else:

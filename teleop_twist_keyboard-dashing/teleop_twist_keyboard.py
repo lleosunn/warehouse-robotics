@@ -74,16 +74,16 @@ CTRL-C to quit
 moveBindings = {
     'i': (1, 0, 0, 0),
     'o': (1, 0, 0, -1),
-    'j': (0, 0, 0, 1),
-    'l': (0, 0, 0, -1),
+    'j': (0, 0, 0, -1),
+    'l': (0, 0, 0, 1),
     'u': (1, 0, 0, 1),
     ',': (-1, 0, 0, 0),
     '.': (-1, 0, 0, 1),
     'm': (-1, 0, 0, -1),
     'O': (1, -1, 0, 0),
     'I': (1, 0, 0, 0),
-    'J': (0, 1, 0, 0),
-    'L': (0, -1, 0, 0),
+    'J': (0, -1, 0, 0),
+    'L': (0, 1, 0, 0),
     'U': (1, 1, 0, 0),
     '<': (-1, 0, 0, 0),
     '>': (-1, -1, 0, 0),
@@ -130,100 +130,105 @@ def vels(speed, turn):
     return 'currently:\tspeed %s\tturn %s ' % (speed, turn)
 
 
+# add near the top
+STOP_KEYS = {' ', 'k'}  # space or 'k' clears all active movement
+
 def main():
+    import time
     settings = saveTerminalSettings()
-
     rclpy.init()
-
     node = rclpy.create_node('teleop_twist_keyboard')
 
     # parameters
-    stamped = node.declare_parameter('stamped', False).value
-    frame_id = node.declare_parameter('frame_id', '').value
-    if not stamped and frame_id:
-        raise Exception("'frame_id' can only be set when 'stamped' is True")
+    stamped      = node.declare_parameter('stamped', False).value
+    frame_id     = node.declare_parameter('frame_id', '').value
+    repeat_rate  = float(node.declare_parameter('repeat_rate', 20.0).value)   # Hz
+    topic1        = node.declare_parameter('topic1', '/robomaster_1/cmd_vel').value
+    topic2        = node.declare_parameter('topic2', '/robomaster_2/cmd_vel').value
+    TwistMsg = geometry_msgs.msg.TwistStamped if stamped else geometry_msgs.msg.Twist
+    pub1 = node.create_publisher(TwistMsg, topic1, 10)
+    pub2 = node.create_publisher(TwistMsg, topic2, 10)
 
-    if stamped:
-        TwistMsg = geometry_msgs.msg.TwistStamped
-    else:
-        TwistMsg = geometry_msgs.msg.Twist
-
-    pub = node.create_publisher(TwistMsg, 'cmd_vel', 10)
-
-    spinner = threading.Thread(target=rclpy.spin, args=(node,))
+    spinner = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
     spinner.start()
 
-    speed = 0.5
-    turn = 1.0
-    x = 0.0
-    y = 0.0
-    z = 0.0
-    th = 0.0
-    status = 0.0
+    # single mutable state (no nonlocal)
+    state = {
+        "speed": 0.5,
+        "turn":  1.0,
+        "active_keys": set(),        # << sticky set of movement keys
+        "twist_msg": TwistMsg(),
+    }
+    lock = threading.Lock()
 
-    twist_msg = TwistMsg()
+    def build_twist_from_active():
+        # sum contributions from all latched movement keys
+        x = y = z = th = 0.0
+        for k in list(state["active_keys"]):
+            if k in moveBindings:
+                dx, dy, dz, dth = moveBindings[k]
+                x += dx; y += dy; z += dz; th += dth
+            else:
+                state["active_keys"].discard(k)
 
-    if stamped:
-        twist = twist_msg.twist
-        twist_msg.header.stamp = node.get_clock().now().to_msg()
-        twist_msg.header.frame_id = frame_id
-    else:
-        twist = twist_msg
+        # clip to [-1, 1] so combos don't exceed 1
+        def clip(v): return max(-1.0, min(1.0, v))
+        x, y, z, th = map(clip, (x, y, z, th))
+
+        tm = state["twist_msg"]
+        if stamped:
+            twist = tm.twist
+            tm.header.stamp = node.get_clock().now().to_msg()
+            if frame_id:
+                tm.header.frame_id = frame_id
+        else:
+            twist = tm
+
+        twist.linear.x  = x * state["speed"]
+        twist.linear.y  = y * state["speed"]
+        twist.linear.z  = z * state["speed"]
+        twist.angular.x = 0.0
+        twist.angular.y = 0.0
+        twist.angular.z = th * state["turn"]
+
+    # steady publisher
+    period = 1.0 / max(1e-6, repeat_rate)
+    def timer_cb():
+        with lock:
+            build_twist_from_active()
+            pub1.publish(state["twist_msg"])
+            pub2.publish(state["twist_msg"])
+    node.create_timer(period, timer_cb)
 
     try:
         print(msg)
-        print(vels(speed, turn))
+        print(vels(state["speed"], state["turn"]))
         while True:
             key = getKey(settings)
-            if key in moveBindings.keys():
-                x = moveBindings[key][0]
-                y = moveBindings[key][1]
-                z = moveBindings[key][2]
-                th = moveBindings[key][3]
-            elif key in speedBindings.keys():
-                speed = speed * speedBindings[key][0]
-                turn = turn * speedBindings[key][1]
-
-                print(vels(speed, turn))
-                if (status == 14):
-                    print(msg)
-                status = (status + 1) % 15
-            else:
-                x = 0.0
-                y = 0.0
-                z = 0.0
-                th = 0.0
-                if (key == '\x03'):
+            with lock:
+                if key in moveBindings:
+                    # latch: treat as constantly “pressed”
+                    state["active_keys"].add(key)
+                elif key in STOP_KEYS:
+                    # clear all motion
+                    state["active_keys"].clear()
+                elif key in speedBindings:
+                    s_gain, t_gain = speedBindings[key]
+                    state["speed"] *= s_gain
+                    state["turn"]  *= t_gain
+                    print(vels(state["speed"], state["turn"]))
+                elif key == '\x03':  # CTRL-C
                     break
-
-            if stamped:
-                twist_msg.header.stamp = node.get_clock().now().to_msg()
-
-            twist.linear.x = x * speed
-            twist.linear.y = y * speed
-            twist.linear.z = z * speed
-            twist.angular.x = 0.0
-            twist.angular.y = 0.0
-            twist.angular.z = th * turn
-            pub.publish(twist_msg)
-
+                # else: ignore other keys
     except Exception as e:
         print(e)
-
     finally:
-        if stamped:
-            twist_msg.header.stamp = node.get_clock().now().to_msg()
-
-        twist.linear.x = 0.0
-        twist.linear.y = 0.0
-        twist.linear.z = 0.0
-        twist.angular.x = 0.0
-        twist.angular.y = 0.0
-        twist.angular.z = 0.0
-        pub.publish(twist_msg)
+        with lock:
+            state["active_keys"].clear()
+            build_twist_from_active()
+            pub.publish(state["twist_msg"])
         rclpy.shutdown()
         spinner.join()
-
         restoreTerminalSettings(settings)
 
 

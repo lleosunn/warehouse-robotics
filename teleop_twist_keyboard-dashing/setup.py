@@ -7,14 +7,16 @@ setup(
     version='2.4.0',
     packages=[],
     py_modules=[
-        'teleop_twist_keyboard'
+        'teleop_twist_keyboard',
+        'collisionavoidance',
+        'detection'
     ],
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
     ],
-    install_requires=['setuptools'],
+    install_requires=['setuptools', 'torch', 'numpy', 'scipy', 'opencv-contrib-python', 'tf-transformations'],
     zip_safe=True,
     maintainer='Chris Lalancette',
     maintainer_email='clalancette@openrobotics.org',
@@ -32,7 +34,9 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'teleop_twist_keyboard = teleop_twist_keyboard:main'
+            'teleop_twist_keyboard = teleop_twist_keyboard:main',
+            'collisionavoidance = collisionavoidance:main',
+            'detection = detection:main'
         ],
     },
 )
