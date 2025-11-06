@@ -5,7 +5,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Pose
-from tf_transformations import quaternion_from_matrix
+from tf_transformations import quaternion_from_matrix, euler_from_matrix
 
 class ArucoPoseNode(Node):
     def __init__(self):
@@ -25,11 +25,13 @@ class ArucoPoseNode(Node):
         self.parameters = self.create_detector_parameters()
 
         # Example calibration (replace with your actual camera parameters)
-        self.camera_matrix = np.array([[533.0, 0, 960],
-                                       [0, 533.0, 540],
-                                       [0, 0, 1]], dtype=np.float32)
-        self.dist_coeffs = np.zeros((5, 1), dtype=np.float32)
-        self.marker_size = 0.127  # meters
+        self.camera_matrix = np.array([[1417.0403096571977, 0.0, 957.459776490542],
+                              [0.0, 1420.2720211645985, 570.5911420017325],
+                              [0.0, 0.0, 1.0]], dtype=np.float32)
+        self.dist_coeffs = np.array([
+        [0.08959465840442786, -0.750613499067229, 0.00020226506264608155, -0.009160126115283456, 2.7073995410808753]
+        ], dtype=np.float32)
+        self.marker_size = 0.20  # meters
 
         # --- Run periodically (30 Hz) ---
         self.timer = self.create_timer(1/30.0, self.timer_callback)
@@ -45,6 +47,15 @@ class ArucoPoseNode(Node):
         else:
             raise RuntimeError("Cannot find DetectorParameters in cv2.aruco")
 
+    def draw_axes(self, img, corners, ids, rvecs, tvecs, camera_matrix, dist_coeffs):
+        # Handle both new and old OpenCV APIs for drawAxis
+        if hasattr(aruco, "drawAxis"):
+            for rvec, tvec in zip(rvecs, tvecs):
+                aruco.drawAxis(img, camera_matrix, dist_coeffs, rvec, tvec, 0.1)
+        elif hasattr(aruco, "drawFrameAxes"):
+            for rvec, tvec in zip(rvecs, tvecs):
+                aruco.drawFrameAxes(img, camera_matrix, dist_coeffs, rvec, tvec, 0.1)
+
     def timer_callback(self):
         ret, frame = self.cap.read()
         if not ret:
@@ -55,20 +66,28 @@ class ArucoPoseNode(Node):
         corners, ids, _ = aruco.detectMarkers(gray, self.aruco_dict, parameters=self.parameters)
 
         if ids is not None:
-            for i, corner in enumerate(corners):
-                marker_points = np.array([
-                    [-self.marker_size/2,  self.marker_size/2, 0],
-                    [ self.marker_size/2,  self.marker_size/2, 0],
-                    [ self.marker_size/2, -self.marker_size/2, 0],
-                    [-self.marker_size/2, -self.marker_size/2, 0]
-                ], dtype=np.float32)
+            aruco.drawDetectedMarkers(frame, corners, ids)
 
+            marker_points = np.array([
+                [-self.marker_size/2,  self.marker_size/2, 0],
+                [ self.marker_size/2,  self.marker_size/2, 0],
+                [ self.marker_size/2, -self.marker_size/2, 0],
+                [-self.marker_size/2, -self.marker_size/2, 0]
+            ], dtype=np.float32)
+
+            rvecs = []
+            tvecs = []
+
+            for i, corner in enumerate(corners):
                 image_points = corner.reshape(-1, 2)
                 success, rvec, tvec = cv2.solvePnP(marker_points, image_points,
                                                    self.camera_matrix, self.dist_coeffs)
                 if not success:
                     self.get_logger().warn("❌ Pose estimation failed.")
                     continue
+
+                rvecs.append(rvec)
+                tvecs.append(tvec)
 
                 # Convert rotation vector to rotation matrix
                 R, _ = cv2.Rodrigues(rvec)
@@ -77,6 +96,12 @@ class ArucoPoseNode(Node):
                 M = np.eye(4)
                 M[:3, :3] = R
                 q = quaternion_from_matrix(M)
+
+                # Compute Euler angles in radians and convert to degrees
+                roll, pitch, yaw = euler_from_matrix(M)
+                roll_deg = np.degrees(roll)
+                pitch_deg = np.degrees(pitch)
+                yaw_deg = np.degrees(yaw)
 
                 # Build Pose message
                 pose_msg = Pose()
@@ -89,27 +114,13 @@ class ArucoPoseNode(Node):
                 pose_msg.orientation.w = float(q[3])
 
                 self.pose_pub.publish(pose_msg)
-                self.get_logger().info(f"🟩 Marker {int(ids[i])} | "
-                                       f"x={tvec[0][0]:.3f}, y={tvec[1][0]:.3f}, z={tvec[2][0]:.3f}")
 
-                # Draw coordinate axes arrows on the image
-                axis_len = 0.03  # meters (match reference visualization)
-                axis_points = np.array([
-                    [0.0, 0.0, 0.0],           # origin
-                    [axis_len, 0.0, 0.0],       # X axis end
-                    [0.0, axis_len, 0.0],       # Y axis end
-                    [0.0, 0.0, axis_len]        # Z axis end
-                ], dtype=np.float32)
+                self.get_logger().info(f"🟩 Detected Marker ID: {int(ids[i])}")
+                self.get_logger().info(f"Position (x, y, z): {tvec[0][0]:.3f}, {tvec[1][0]:.3f}, {tvec[2][0]:.3f}")
+                self.get_logger().info(f"Euler angles (deg) Roll: {roll_deg:.1f}, Pitch: {pitch_deg:.1f}, Yaw: {yaw_deg:.1f}")
 
-                imgpts, _ = cv2.projectPoints(axis_points, rvec, tvec, self.camera_matrix, self.dist_coeffs)
-                o = tuple(imgpts[0].ravel().astype(int))
-                x = tuple(imgpts[1].ravel().astype(int))
-                y = tuple(imgpts[2].ravel().astype(int))
-                z = tuple(imgpts[3].ravel().astype(int))
-
-                cv2.arrowedLine(frame, o, x, (0, 0, 255), 2, tipLength=0.2)   # X - red
-                cv2.arrowedLine(frame, o, y, (0, 255, 0), 2, tipLength=0.2)   # Y - green
-                cv2.arrowedLine(frame, o, z, (255, 0, 0), 2, tipLength=0.2)   # Z - blue
+            # Draw axes for all detected markers
+            self.draw_axes(frame, corners, ids, rvecs, tvecs, self.camera_matrix, self.dist_coeffs)
 
         # Optional visualization (comment out for headless)
         cv2.imshow("ArUco Pose Estimation", frame)
