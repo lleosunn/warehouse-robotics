@@ -40,7 +40,7 @@ def main():
     dist_coeffs = np.array([
         [0.08959465840442786, -0.750613499067229, 0.00020226506264608155, -0.009160126115283456, 2.7073995410808753]
     ])
-    marker_size = 0.20  # 20 cm marker
+    marker_size = 0.105 
 
     print("📷 Press 'q' to quit.")
     while True:

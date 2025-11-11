@@ -9,7 +9,9 @@ setup(
     py_modules=[
         'teleop_twist_keyboard',
         'collisionavoidance',
-        'detection'
+        'detection',
+        'newdetection',
+        'aruco_controller'
     ],
     data_files=[
         ('share/ament_index/resource_index/packages',
@@ -36,7 +38,9 @@ setup(
         'console_scripts': [
             'teleop_twist_keyboard = teleop_twist_keyboard:main',
             'collisionavoidance = collisionavoidance:main',
-            'detection = detection:main'
+            'detection = detection:main',
+            'newdetection = newdetection:main',
+            'aruco_controller = aruco_controller:main'
         ],
     },
 )

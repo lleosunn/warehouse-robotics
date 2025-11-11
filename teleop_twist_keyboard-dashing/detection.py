@@ -31,7 +31,7 @@ class ArucoPoseNode(Node):
         self.dist_coeffs = np.array([
         [0.08959465840442786, -0.750613499067229, 0.00020226506264608155, -0.009160126115283456, 2.7073995410808753]
         ], dtype=np.float32)
-        self.marker_size = 0.20  # meters
+        self.marker_size = 0.105
 
         # --- Run periodically (30 Hz) ---
         self.timer = self.create_timer(1/30.0, self.timer_callback)
@@ -115,8 +115,10 @@ class ArucoPoseNode(Node):
 
                 self.pose_pub.publish(pose_msg)
 
+                # Extract position values correctly (tvec is 3x1 array)
+                x, y, z = tvec.flatten()
                 self.get_logger().info(f"🟩 Detected Marker ID: {int(ids[i])}")
-                self.get_logger().info(f"Position (x, y, z): {tvec[0][0]:.3f}, {tvec[1][0]:.3f}, {tvec[2][0]:.3f}")
+                self.get_logger().info(f"Position (x, y, z): {x:.3f}, {y:.3f}, {z:.3f}")
                 self.get_logger().info(f"Euler angles (deg) Roll: {roll_deg:.1f}, Pitch: {pitch_deg:.1f}, Yaw: {yaw_deg:.1f}")
 
             # Draw axes for all detected markers
