@@ -10,13 +10,13 @@ class ArucoControllerNode(Node):
 
         # --- Declare parameters (editable via command line or parameter file) ---
         # Target position in camera frame (meters)
-        self.declare_parameter('target_x', -1.1)  # Target x position
-        self.declare_parameter('target_y', -0.5)  # Target y position
+        self.declare_parameter('target_x', 0.5)  # Target x position
+        self.declare_parameter('target_y', 0.5)  # Target y position
         
         # P controller gains
-        self.declare_parameter('kp_x', 1.0)  # Proportional gain for x
-        self.declare_parameter('kp_y', 2.0)  # Proportional gain for y
-        self.declare_parameter('kp_yaw', 1.0)  # Proportional gain for yaw
+        self.declare_parameter('kp_x', 2)  # Proportional gain for x
+        self.declare_parameter('kp_y', -3)  # Proportional gain for y
+        self.declare_parameter('kp_yaw', -2.0)  # Proportional gain for yaw
         
         # Maximum velocities (m/s)
         self.declare_parameter('max_linear_x', 0.5)
@@ -32,12 +32,12 @@ class ArucoControllerNode(Node):
         # --- Subscribers ---
         self.pose_sub = self.create_subscription(
             Pose,
-            '/aruco_pose',
+            '/pose',
             self.pose_callback,
             10
         )
 
-        # --- Publishers ---
+        # --- Publishers ---Sub
         self.cmd_vel_pub = self.create_publisher(
             Twist,
             '/robomaster_1/cmd_vel',

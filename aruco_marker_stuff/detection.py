@@ -2,6 +2,23 @@ import cv2
 import cv2.aruco as aruco
 import numpy as np
 
+def rvec_tvec_to_T(rvec, tvec):
+    """Convert OpenCV rvec/tvec to a 4x4 transform matrix."""
+    R, _ = cv2.Rodrigues(rvec)
+    T = np.eye(4, dtype=np.float32)
+    T[:3, :3] = R
+    T[:3, 3] = tvec.flatten()
+    return T
+
+def invert_T(T):
+    """Invert a 4x4 rigid transform."""
+    R = T[:3, :3]
+    t = T[:3, 3]
+    Tinv = np.eye(4, dtype=np.float32)
+    Tinv[:3, :3] = R.T
+    Tinv[:3, 3] = -R.T @ t
+    return Tinv
+
 def create_detector_parameters():
     """Handle both new and old OpenCV ArUco APIs."""
     if hasattr(aruco, "DetectorParameters"):
@@ -40,7 +57,7 @@ def main():
     dist_coeffs = np.array([
         [0.08959465840442786, -0.750613499067229, 0.00020226506264608155, -0.009160126115283456, 2.7073995410808753]
     ])
-    marker_size = 0.105 
+    marker_size = 0.200 
 
     print("📷 Press 'q' to quit.")
     while True:
@@ -74,22 +91,42 @@ def main():
 
                 draw_axes(frame, camera_matrix, dist_coeffs, rvec, tvec)
 
-                x, y, z = tvec.flatten().tolist()
-                print(f"  📍 Position (m): x={x:.3f}, y={y:.3f}, z={z:.3f}")
+                # Build transform of current marker in camera frame
+                T_cam_marker = rvec_tvec_to_T(rvec, tvec)
 
-                # Convert rotation vector → Euler angles
-                R, _ = cv2.Rodrigues(rvec)
-                sy = np.sqrt(R[0, 0]**2 + R[1, 0]**2)
-                singular = sy < 1e-6
-                if not singular:
-                    roll = np.degrees(np.arctan2(R[2, 1], R[2, 2]))
-                    pitch = np.degrees(np.arctan2(-R[2, 0], sy))
-                    yaw = np.degrees(np.arctan2(R[1, 0], R[0, 0]))
-                else:
-                    roll = np.degrees(np.arctan2(-R[1, 2], R[1, 1]))
-                    pitch = np.degrees(np.arctan2(-R[2, 0], sy))
-                    yaw = 0
-                print(f"  🔄 Orientation (°): roll={roll:.1f}, pitch={pitch:.1f}, yaw={yaw:.1f}")
+                # === WORLD FRAME SETUP (Marker 1) ===
+                if marker_id == 0:
+                    T_world_cam = invert_T(T_cam_marker)
+                    have_world = True
+                    print("  🌍 Marker 0 sets world frame.")
+
+                # === ROBOT MARKER (Marker 2) ===
+                if marker_id == 1:
+                    print("  🤖 Marker 1 detected.")
+                    if 'have_world' in locals() and have_world:
+                        T_world_m2 = T_world_cam @ T_cam_marker
+                        pos = T_world_m2[:3, 3]
+                        print("  📍 Marker 1 Position in WORLD frame:")
+                        print(f"     x={pos[0]:.3f}, y={pos[1]:.3f}, z={pos[2]:.3f}")
+
+                        # --- Orientation extraction ---
+                        R_m2 = T_world_m2[:3, :3]
+                        sy = np.sqrt(R_m2[0,0]**2 + R_m2[1,0]**2)
+                        singular = sy < 1e-6
+
+                        if not singular:
+                            roll = np.degrees(np.arctan2(R_m2[2,1], R_m2[2,2]))
+                            pitch = np.degrees(np.arctan2(-R_m2[2,0], sy))
+                            yaw = np.degrees(np.arctan2(R_m2[1,0], R_m2[0,0]))
+                        else:
+                            roll = np.degrees(np.arctan2(-R_m2[1,2], R_m2[1,1]))
+                            pitch = np.degrees(np.arctan2(-R_m2[2,0], sy))
+                            yaw = 0
+
+                        print("  🎯 Marker 1 Orientation (WORLD frame, °):")
+                        print(f"     roll={roll:.2f}, pitch={pitch:.2f}, yaw={yaw:.2f}")
+                    else:
+                        print("  ❌ World frame not established yet — detect Marker 0 first.")
 
         else:
             cv2.putText(frame, "No markers detected", (10, 30),

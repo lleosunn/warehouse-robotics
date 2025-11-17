@@ -5,150 +5,156 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Pose
+from scipy.spatial.transform import Rotation as R  # ✅ NEW
 
-def create_detector_parameters():
-    """Handle both new and old OpenCV ArUco APIs."""
-    if hasattr(aruco, "DetectorParameters"):
-        # OpenCV ≥ 4.10
-        return aruco.DetectorParameters()
-    elif hasattr(aruco, "DetectorParameters_create"):
-        # Older OpenCV
-        return aruco.DetectorParameters_create()
-    else:
-        raise RuntimeError("Cannot find DetectorParameters class in cv2.aruco")
+def rvec_tvec_to_T(rvec, tvec):
+    """Convert OpenCV rvec/tvec to a 4x4 transform matrix."""
+    R_mat, _ = cv2.Rodrigues(rvec)
+    T = np.eye(4, dtype=np.float32)
+    T[:3, :3] = R_mat
+    T[:3, 3] = tvec.flatten()
+    return T
 
-def draw_axes(frame, camera_matrix, dist_coeffs, rvec, tvec, axis_length=0.03):
-    """Compatible replacement for aruco.drawAxis."""
-    if hasattr(cv2, "drawFrameAxes"):
-        # OpenCV ≥ 4.10
-        cv2.drawFrameAxes(frame, camera_matrix, dist_coeffs, rvec, tvec, axis_length)
-    elif hasattr(aruco, "drawAxis"):
-        # Older OpenCV
-        aruco.drawAxis(frame, camera_matrix, dist_coeffs, rvec, tvec, axis_length)
-    else:
-        print("⚠️ drawAxis/drawFrameAxes not available in this OpenCV build.")
+def invert_T(T):
+    """Invert a 4x4 rigid transform."""
+    R_mat = T[:3, :3]
+    t = T[:3, 3]
+    Tinv = np.eye(4, dtype=np.float32)
+    Tinv[:3, :3] = R_mat.T
+    Tinv[:3, 3] = -R_mat.T @ t
+    return Tinv
 
-def euler_to_quaternion(roll, pitch, yaw):
-    """Convert Euler angles (in radians) to quaternion (x, y, z, w)."""
-    # Roll (x-axis rotation)
-    cy = np.cos(yaw * 0.5)
-    sy = np.sin(yaw * 0.5)
-    cp = np.cos(pitch * 0.5)
-    sp = np.sin(pitch * 0.5)
-    cr = np.cos(roll * 0.5)
-    sr = np.sin(roll * 0.5)
-
-    qw = cr * cp * cy + sr * sp * sy
-    qx = sr * cp * cy - cr * sp * sy
-    qy = cr * sp * cy + sr * cp * sy
-    qz = cr * cp * sy - sr * sp * cy
-
-    return [qx, qy, qz, qw]
-
-class ArucoDetectionNode(Node):
+class ArucoPoseNode(Node):
     def __init__(self):
-        super().__init__('aruco_detection_node')
+        super().__init__('aruco_pose_node')
 
-        # --- Publishers ---
-        self.pose_pub = self.create_publisher(Pose, '/aruco_pose', 10)
+        # --- Publisher ---
+        self.pose_pub = self.create_publisher(Pose, '/pose', 10)
 
         # --- Camera setup ---
         self.cap = cv2.VideoCapture(0)
         if not self.cap.isOpened():
-            self.get_logger().error("❌ Error: Could not open camera.")
+            self.get_logger().error("❌ Could not open camera.")
             raise RuntimeError("Camera not accessible.")
 
         # --- ArUco setup ---
         self.aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_6X6_250)
-        self.parameters = create_detector_parameters()
+        self.parameters = self.create_detector_parameters()
 
-        # Example calibration (replace with your actual calibration for accuracy)
-        self.camera_matrix = np.array([[1417.0403096571977, 0.0, 957.459776490542],
-                                      [0.0, 1420.2720211645985, 570.5911420017325],
-                                      [0.0, 0.0, 1.0]], dtype=np.float32)
+        # Load your calibration
+        self.camera_matrix = np.array([
+            [628.2060513684523, 0.0, 334.5792569768152],
+            [0.0, 627.5840905155266, 252.94919633119522],
+            [0.0, 0.0, 1.0]
+        ], dtype=np.float32)
+
         self.dist_coeffs = np.array([
-            [0.08959465840442786, -0.750613499067229, 0.00020226506264608155, -0.009160126115283456, 2.7073995410808753]
-        ])
+            [
+                0.018873878948639438,
+                0.1382933190183097,
+                -0.0014933935941659632,
+                0.006031010738591554,
+                -0.7083862634771421
+            ]
+        ], dtype=np.float32)
+
         self.marker_size = 0.105
+        self.have_world = False
+        self.T_world_cam = None
 
-        # --- Run periodically (same rate as camera capture) ---
-        self.timer = self.create_timer(0.033, self.timer_callback)  # ~30 Hz
+        # Timer @ 30 Hz
+        self.timer = self.create_timer(1/30.0, self.timer_callback)
+        self.get_logger().info("📷 ArUco Pose Node with WORLD frame started.")
 
-        self.get_logger().info("📷 ArUco Detection Node started. Press Ctrl+C to stop.")
+    def create_detector_parameters(self):
+        if hasattr(aruco, "DetectorParameters"):
+            return aruco.DetectorParameters()
+        elif hasattr(aruco, "DetectorParameters_create"):
+            return aruco.DetectorParameters_create()
+        else:
+            raise RuntimeError("Cannot find DetectorParameters in cv2.aruco")
 
     def timer_callback(self):
         ret, frame = self.cap.read()
         if not ret:
-            self.get_logger().warn("⚠️ Failed to grab frame.")
+            self.get_logger().warning("⚠️ Failed to grab frame.")
             return
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         corners, ids, _ = aruco.detectMarkers(gray, self.aruco_dict, parameters=self.parameters)
 
-        if ids is not None:
-            aruco.drawDetectedMarkers(frame, corners, ids)
-            for i, corner in enumerate(corners):
-                marker_id = int(ids[i])
-                self.get_logger().info(f"\n🟩 Detected Marker ID: {marker_id}")
+        if ids is None:
+            cv2.imshow("ArUco Pose Estimation", frame)
+            cv2.waitKey(1)
+            return
 
-                marker_points = np.array([
-                    [-self.marker_size/2,  self.marker_size/2, 0],
-                    [ self.marker_size/2,  self.marker_size/2, 0],
-                    [ self.marker_size/2, -self.marker_size/2, 0],
-                    [-self.marker_size/2, -self.marker_size/2, 0]
-                ], dtype=np.float32)
+        aruco.drawDetectedMarkers(frame, corners, ids)
 
-                image_points = corner.reshape(-1, 2)
-                success, rvec, tvec = cv2.solvePnP(marker_points, image_points,
-                                                   self.camera_matrix, self.dist_coeffs)
-                if not success:
-                    self.get_logger().warn("  ❌ Pose estimation failed.")
-                    continue
+        # Marker geometry for solvePnP
+        marker_points = np.array([
+            [-self.marker_size/2,  self.marker_size/2, 0],
+            [ self.marker_size/2,  self.marker_size/2, 0],
+            [ self.marker_size/2, -self.marker_size/2, 0],
+            [-self.marker_size/2, -self.marker_size/2, 0]
+        ], dtype=np.float32)
 
-                # Draw axes exactly as in standalone script (axis_length=0.03)
-                draw_axes(frame, self.camera_matrix, self.dist_coeffs, rvec, tvec, axis_length=0.03)
+        for i, corner in enumerate(corners):
+            marker_id = int(ids[i])
+            image_points = corner.reshape(-1, 2)
 
-                x, y, z = tvec.flatten().tolist()
-                self.get_logger().info(f"  📍 Position (m): x={x:.3f}, y={y:.3f}, z={z:.3f}")
+            success, rvec, tvec = cv2.solvePnP(
+                marker_points, image_points,
+                self.camera_matrix, self.dist_coeffs
+            )
+            if not success:
+                continue
 
-                # Convert rotation vector → Euler angles (same calculation as standalone)
-                R, _ = cv2.Rodrigues(rvec)
-                sy = np.sqrt(R[0, 0]**2 + R[1, 0]**2)
-                singular = sy < 1e-6
-                if not singular:
-                    roll = np.degrees(np.arctan2(R[2, 1], R[2, 2]))
-                    pitch = np.degrees(np.arctan2(-R[2, 0], sy))
-                    yaw = np.degrees(np.arctan2(R[1, 0], R[0, 0]))
-                else:
-                    roll = np.degrees(np.arctan2(-R[1, 2], R[1, 1]))
-                    pitch = np.degrees(np.arctan2(-R[2, 0], sy))
-                    yaw = 0
-                self.get_logger().info(f"  🔄 Orientation (°): roll={roll:.1f}, pitch={pitch:.1f}, yaw={yaw:.1f}")
+            # Convert OpenCV vectors → full transform matrix
+            T_cam_marker = rvec_tvec_to_T(rvec, tvec)
 
-                # Convert Euler angles to quaternion for ROS message
-                roll_rad = np.radians(roll)
-                pitch_rad = np.radians(pitch)
-                yaw_rad = np.radians(yaw)
-                qx, qy, qz, qw = euler_to_quaternion(roll_rad, pitch_rad, yaw_rad)
+            # -----------------------------
+            # Marker 1 = WORLD FRAME ORIGIN
+            # -----------------------------
+            if marker_id == 1:
+                self.T_world_cam = invert_T(T_cam_marker)
+                self.have_world = True
+                self.get_logger().info("🌍 Marker 1 sets WORLD frame.")
 
-                # Publish pose message
+            # -----------------------------
+            # Marker 0 = ROBOT MARKER
+            # -----------------------------
+            if marker_id == 0 and self.have_world:
+                T_world_m1 = self.T_world_cam @ T_cam_marker
+                pos = T_world_m1[:3, 3]
+
+                # Extract world-frame rotation
+                R_mat = T_world_m1[:3, :3]
+                rot = R.from_matrix(R_mat)
+
+                q_xyzw = rot.as_quat()                  # x, y, z, w
+                roll, pitch, yaw = rot.as_euler('xyz', degrees=True)
+
+                # Publish pose
                 pose_msg = Pose()
-                pose_msg.position.x = float(x)
-                pose_msg.position.y = float(y)
-                pose_msg.position.z = float(z)
-                pose_msg.orientation.x = float(qx)
-                pose_msg.orientation.y = float(qy)
-                pose_msg.orientation.z = float(qz)
-                pose_msg.orientation.w = float(qw)
+                pose_msg.position.x = float(pos[0])
+                pose_msg.position.y = float(pos[1])
+                pose_msg.position.z = float(pos[2])
+
+                pose_msg.orientation.x = float(q_xyzw[0])
+                pose_msg.orientation.y = float(q_xyzw[1])
+                pose_msg.orientation.z = float(q_xyzw[2])
+                pose_msg.orientation.w = float(q_xyzw[3])
+
                 self.pose_pub.publish(pose_msg)
 
-        else:
-            cv2.putText(frame, "No markers detected", (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+                self.get_logger().info(
+                    f"🤖 Marker 0 WORLD pose: "
+                    f"x={pos[0]:.3f}, y={pos[1]:.3f}, z={pos[2]:.3f}, "
+                    f"yaw={yaw:.1f}°"
+                )
 
         cv2.imshow("ArUco Pose Estimation", frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            rclpy.shutdown()
+        cv2.waitKey(1)
 
     def destroy_node(self):
         self.cap.release()
@@ -158,7 +164,7 @@ class ArucoDetectionNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = ArucoDetectionNode()
+    node = ArucoPoseNode()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
@@ -167,6 +173,6 @@ def main(args=None):
         node.destroy_node()
         rclpy.shutdown()
 
+
 if __name__ == "__main__":
     main()
-
