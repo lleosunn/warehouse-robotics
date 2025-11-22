@@ -3,6 +3,7 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Pose, Twist
 import math
+import numpy as np
 
 class ArucoControllerNode(Node):
     def __init__(self):
@@ -14,9 +15,9 @@ class ArucoControllerNode(Node):
         self.declare_parameter('target_y', 0.5)  # Target y position
         
         # P controller gains
-        self.declare_parameter('kp_x', 2)  # Proportional gain for x
-        self.declare_parameter('kp_y', -3)  # Proportional gain for y
-        self.declare_parameter('kp_yaw', -2.0)  # Proportional gain for yaw
+        self.declare_parameter('kp_x', 1)  # Proportional gain for x
+        self.declare_parameter('kp_y', 2)  # Proportional gain for y
+        self.declare_parameter('kp_yaw', 2.0)  # Proportional gain for yaw
         
         # Maximum velocities (m/s)
         self.declare_parameter('max_linear_x', 0.5)
@@ -122,24 +123,33 @@ class ArucoControllerNode(Node):
             self.get_logger().info(f"✓ At target position (error: {error_distance:.3f}m)")
             return
 
+    
+        rotation_matrix = np.array([[math.cos(current_yaw), math.sin(current_yaw)], 
+                                    [-math.sin(current_yaw), math.cos(current_yaw)]])
+        
+
+
+        error_xrobot, error_yrobot = rotation_matrix @ np.array([error_x, error_y])
+
         # P controller: velocity = Kp * error
-        vel_x = kp_x * error_x
-        vel_y = kp_y * error_y
+        vel_xrobot = kp_x * error_xrobot
+        vel_yrobot = kp_y * error_yrobot
         vel_yaw = kp_yaw * error_yaw
 
         # Limit velocities
-        vel_x = max(-max_linear_x, min(max_linear_x, vel_x))
-        vel_y = max(-max_linear_y, min(max_linear_y, vel_y))
+        vel_xrobot = max(-max_linear_x, min(max_linear_x, vel_xrobot))
+        vel_yrobot = max(-max_linear_y, min(max_linear_y, vel_yrobot))
         vel_yaw = max(-max_angular_z, min(max_angular_z, vel_yaw))
+
 
         # Create and publish twist message
         twist = Twist()
-        twist.linear.x = float(vel_x)
-        twist.linear.y = float(vel_y)
+        twist.linear.x = float(vel_xrobot)
+        twist.linear.y = float(-vel_yrobot) # y is inverted
         twist.linear.z = 0.0
         twist.angular.x = 0.0
         twist.angular.y = 0.0
-        twist.angular.z = float(vel_yaw)
+        twist.angular.z = float(-vel_yaw) # z is inverted
 
         self.cmd_vel_pub.publish(twist)
 
@@ -148,7 +158,7 @@ class ArucoControllerNode(Node):
             f"Current: ({current_x:.3f}, {current_y:.3f}, {math.degrees(current_yaw):.1f}°) | "
             f"Target: ({target_x:.3f}, {target_y:.3f}, 0.0°) | "
             f"Error: ({error_x:.3f}, {error_y:.3f}, {math.degrees(error_yaw):.1f}°) | "
-            f"Vel: ({vel_x:.3f}, {vel_y:.3f}, {math.degrees(vel_yaw):.1f}°/s)"
+            f"Vel: ({vel_xrobot:.3f}, {vel_yrobot:.3f}, {math.degrees(vel_yaw):.1f}°/s)"
         )
 
     def publish_stop(self):
@@ -176,4 +186,3 @@ def main(args=None):
 
 if __name__ == "__main__":
     main()
-
