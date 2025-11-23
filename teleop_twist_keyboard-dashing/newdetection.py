@@ -5,7 +5,10 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Pose
-from scipy.spatial.transform import Rotation as R  # ✅ NEW
+from scipy.spatial.transform import Rotation as R
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+import threading
 
 def rvec_tvec_to_T(rvec, tvec):
     """Convert OpenCV rvec/tvec to a 4x4 transform matrix."""
@@ -28,8 +31,19 @@ class ArucoPoseNode(Node):
     def __init__(self):
         super().__init__('aruco_pose_node')
 
-        # --- Publisher ---
-        self.pose_pub = self.create_publisher(Pose, '/pose', 10)
+        self.num_agents = 2
+        self.pose_pubs = [self.create_publisher(Pose, f'/pose_{i+1}', 10) for i in range(self.num_agents)]
+
+        self.fig, self.ax = plt.subplots()
+        self.marker_positions = {i+1: (0,0) for i in range(self.num_agents)}
+        self.scatter = self.ax.scatter([], [])
+        self.ax.set_xlim(0, 2)
+        self.ax.set_ylim(0, 2)
+        self.ax.set_xlabel('X position')
+        self.ax.set_ylabel('Y position')
+        self.anim = FuncAnimation(self.fig, self.update_plot, interval=100)
+        plt.ion()
+        plt.show()
 
         # --- Camera setup ---
         self.cap = cv2.VideoCapture(0)
@@ -74,6 +88,15 @@ class ArucoPoseNode(Node):
         else:
             raise RuntimeError("Cannot find DetectorParameters in cv2.aruco")
 
+    def update_plot(self, frame):
+        xs = []
+        ys = []
+        for pos in self.marker_positions.values():
+            xs.append(pos[0])
+            ys.append(pos[1])
+        self.scatter.set_offsets(np.c_[xs, ys])
+        return self.scatter,
+
     def timer_callback(self):
         ret, frame = self.cap.read()
         if not ret:
@@ -113,28 +136,24 @@ class ArucoPoseNode(Node):
             T_cam_marker = rvec_tvec_to_T(rvec, tvec)
 
             # -----------------------------
-            # Marker 1 = WORLD FRAME ORIGIN
+            # Marker 0 = WORLD FRAME ORIGIN
             # -----------------------------
-            if marker_id == 1:
+            if marker_id == 0:
                 self.T_world_cam = invert_T(T_cam_marker)
                 self.have_world = True
-                self.get_logger().info("🌍 Marker 1 sets WORLD frame.")
+                self.get_logger().info("🌍 Marker 0 sets WORLD frame.")
 
             # -----------------------------
-            # Marker 0 = ROBOT MARKER
+            # ROBOT MARKERS
             # -----------------------------
-            if marker_id == 0 and self.have_world:
-                T_world_m1 = self.T_world_cam @ T_cam_marker
-                pos = T_world_m1[:3, 3]
-
-                # Extract world-frame rotation
-                R_mat = T_world_m1[:3, :3]
+            if self.have_world and 1 <= marker_id <= self.num_agents:
+                T_world_m = self.T_world_cam @ T_cam_marker
+                pos = T_world_m[:3, 3]
+                R_mat = T_world_m[:3, :3]
                 rot = R.from_matrix(R_mat)
-
-                q_xyzw = rot.as_quat()                  # x, y, z, w
+                q_xyzw = rot.as_quat()
                 roll, pitch, yaw = rot.as_euler('xyz', degrees=True)
 
-                # Publish pose
                 pose_msg = Pose()
                 pose_msg.position.x = float(pos[0])
                 pose_msg.position.y = float(pos[1])
@@ -145,16 +164,20 @@ class ArucoPoseNode(Node):
                 pose_msg.orientation.z = float(q_xyzw[2])
                 pose_msg.orientation.w = float(q_xyzw[3])
 
-                self.pose_pub.publish(pose_msg)
+                self.pose_pubs[marker_id - 1].publish(pose_msg)
+
+                self.marker_positions[marker_id] = (float(pos[0]), float(pos[1]))
 
                 self.get_logger().info(
-                    f"🤖 Marker 0 WORLD pose: "
+                    f"🤖 Marker {marker_id} WORLD pose: "
                     f"x={pos[0]:.3f}, y={pos[1]:.3f}, z={pos[2]:.3f}, "
                     f"yaw={yaw:.1f}°"
                 )
 
         cv2.imshow("ArUco Pose Estimation", frame)
         cv2.waitKey(1)
+
+        plt.pause(0.001)
 
     def destroy_node(self):
         self.cap.release()
@@ -165,6 +188,8 @@ class ArucoPoseNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = ArucoPoseNode()
+    # Start the matplotlib plot window in a separate thread
+    threading.Thread(target=plt.show, daemon=True).start()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
