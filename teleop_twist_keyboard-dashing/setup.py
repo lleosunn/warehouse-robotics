@@ -11,7 +11,8 @@ setup(
         'collisionavoidance',
         'detection',
         'newdetection',
-        'aruco_controller'
+        'aruco_controller',
+        'repulsive_avoidance'
     ],
     data_files=[
         ('share/ament_index/resource_index/packages',
@@ -40,7 +41,8 @@ setup(
             'collisionavoidance = collisionavoidance:main',
             'detection = detection:main',
             'newdetection = newdetection:main',
-            'aruco_controller = aruco_controller:main'
+            'aruco_controller = aruco_controller:main',
+            'repulsive_avoidance = repulsive_avoidance:main'
         ],
     },
 )
